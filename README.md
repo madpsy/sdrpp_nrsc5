@@ -44,33 +44,51 @@ wait a few seconds for sync, and pick a program. The audio goes to its own
 stream in the **Sinks** menu, so its volume and output are set there. Use the
 **Radio** module's own VFO alongside it for the analogue signal.
 
-## Trying it without a station
+## Samples
 
-nrsc5 ships a 17-second recording of KUT (90.5 MHz, Austin). Convert it for
-SDR++'s **File Source** and play it:
+`samples/` holds recordings to try the module on without a station in range,
+and that the tests play:
 
-    tools/sample_to_wav.py <nrsc5>/support/sample.xz build
-    # -> build/nrsc5_sample_90500000Hz.wav; open it in File Source
+| File | Station | IQ |
+|---|---|---|
+| `kut_90500000Hz_1488375sps.cu8.xz` | KUT 90.5 MHz, Austin TX: FM hybrid, HD1 + HD2 (nrsc5's own sample) | 8-bit, 1488375 Hz, 17 s |
+| `wshe_na5b_820000Hz_iq48.wav` | WSHE 820 kHz: AM all-digital (MA3), via the NA5B UberSDR | 16-bit, 48 kHz, lossless, 30 s |
+| `wshe_na5b_820000Hz_iq12.wav` | the same station, same receiver, straight after | 16-bit, 12 kHz, lossless, 30 s |
+
+The WAVs open directly in SDR++'s **File Source**, which reads the centre
+frequency from the name; set the HD Radio mode to AM. The KUT recording needs
+converting first:
+
+    tools/sample_to_wav.py samples/kut_90500000Hz_1488375sps.cu8.xz build
+    # -> build/nrsc5_sample_90500000Hz.wav
+
+12 kHz of IQ is enough for all-digital AM: its core subcarriers sit within
+±5 kHz and carry the audio on their own.
 
 ## Tests
 
-    cmake -S . -B build -DHDRADIO_TEST_CORE_LIB=/usr/lib/libsdrpp_core.so
-    cmake --build build -j
-    build/resampler_test
-    xz -dc <nrsc5>/support/sample.xz > sample.cu8
-    build/host_test $PWD/build/hdradio_decoder.so /tmp <path>/sample.cu8 1488375 [program] [out.wav]
+    cmake -S . -B build && cmake --build build -j
+    ctest --test-dir build --output-on-failure
 
-`host_test` loads the module into a real SDR++ core (no window), plays the
-recording through the core's IQ front end and the module's VFO, and captures
-the module's audio; it passes when the decoder syncs and plays.
+`resampler` checks the resampler on its own. Every other test loads the module
+into a real SDR++ core (no window), plays one of the samples through the core's
+IQ front end and the module's VFO into a capture sink, and passes when the
+decoder syncs, plays audio, and the menu shows what that recording is known to
+carry: station name, facility, program type, titles. The core is found where
+SDR++ is installed, or given with `-DHDRADIO_TEST_CORE_LIB=<libsdrpp_core>`; the
+KUT test needs `xz`.
+
+    build/host_test $PWD/build/hdradio_decoder.so <root> <recording> <FM|AM> [program] [expected text...]
+
+runs one by hand (`HOST_TEST_WAV=out.wav` keeps the decoded audio).
 
 `live_test` does the same with a real source module tuned to a station, and
 prints what the menu shows as it changes. For an UberSDR receiver, put an
-`ubersdr_source_config.json` naming it in the root dir first; `IQ_DUMP=file`
-also saves the source's IQ, to check the spectrum when nothing syncs:
+`ubersdr_source_config.json` naming it in the root dir first (`"minMargin": 0`
+for lossless IQ); `IQ_DUMP=file` also saves the source's IQ:
 
     build/live_test $PWD/build/hdradio_decoder.so /usr/lib/sdrpp/plugins/ubersdr_source.so \
-        UberSDR <root> 1450000 AM 90 [program] [out.wav]
+        UberSDR <root> 820000 AM 60 [program] [out.wav]
 
 `band_scan` steps a source across MW (540-1700 kHz by default) and flags
 channels whose spectrum has hybrid AM HD's sidebands: flat blocks from about

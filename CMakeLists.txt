@@ -176,20 +176,51 @@ install(TARGETS hdradio_decoder LIBRARY DESTINATION lib/sdrpp/plugins)
 
 # --- tests ----------------------------------------------------------------------
 #
+#   ctest --test-dir build --output-on-failure
+#
 # resampler_test checks the fractional resampler on its own. host_test loads the
-# built module into a real SDR++ core and plays nrsc5's sample capture through
-# the core's signal path; live_test does the same with a real source module
-# tuned to a station on the air:
-#   -DHDRADIO_TEST_CORE_LIB=/usr/lib/libsdrpp_core.so
+# built module into a real SDR++ core, plays a recording from samples/ through
+# the core's signal path and checks what the menu shows: the station, program
+# type and titles each recording is known to carry. live_test does the same
+# with a real source module tuned to a station on the air, and band_scan
+# screens MW for hybrid AM HD; neither runs under ctest.
+#
+# The core-linked tests need an SDR++ core to link against, found on its own
+# where SDR++ is installed, or given as -DHDRADIO_TEST_CORE_LIB=<libsdrpp_core>.
+enable_testing()
 add_executable(resampler_test test/resampler_test.cpp)
 target_include_directories(resampler_test PRIVATE src)
+add_test(NAME resampler COMMAND resampler_test)
 
-set(HDRADIO_TEST_CORE_LIB "" CACHE FILEPATH "SDR++ core library to link host_test against")
+set(HDRADIO_TEST_CORE_LIB "" CACHE FILEPATH "SDR++ core library to link host_test against (default: the installed one)")
+if (NOT HDRADIO_TEST_CORE_LIB)
+    find_library(HDRADIO_FOUND_CORE sdrpp_core)
+    if (HDRADIO_FOUND_CORE)
+        set(HDRADIO_TEST_CORE_LIB ${HDRADIO_FOUND_CORE})
+    endif ()
+endif ()
 if (HDRADIO_TEST_CORE_LIB)
     find_library(HDRADIO_FOUND_VOLK volk REQUIRED)
     foreach(t host_test live_test band_scan)
         add_executable(${t} test/${t}.cpp)
         target_include_directories(${t} PRIVATE ${VOLK_INCLUDE_DIR} ${SDRPP_SOURCE_DIR}/core/src ${SDRPP_SOURCE_DIR}/core/src/imgui)
         target_link_libraries(${t} PRIVATE ${HDRADIO_TEST_CORE_LIB} ${HDRADIO_FOUND_VOLK} ${FFTW3F_LIBRARY} pthread dl)
+    endforeach()
+
+    # One test per recording and program: <name> <recording> <FM|AM> <program> <expected text...>
+    set(S ${CMAKE_CURRENT_SOURCE_DIR}/samples)
+    function(hdradio_sample_test name recording mode program)
+        add_test(NAME ${name}
+            COMMAND host_test $<TARGET_FILE:hdradio_decoder> ${CMAKE_CURRENT_BINARY_DIR}/test-root/${name}
+                    ${recording} ${mode} ${program} ${ARGN})
+        set_tests_properties(${name} PROPERTIES TIMEOUT 300)
+    endfunction()
+    hdradio_sample_test(fm_kut_hd1 ${S}/kut_90500000Hz_1488375sps.cu8.xz FM 0
+        "KUT" "The University of Texas at Austin" "HD2" "You're Listening to Q with Jian Ghomeshi")
+    hdradio_sample_test(fm_kut_hd2 ${S}/kut_90500000Hz_1488375sps.cu8.xz FM 1
+        "KUT" "(x) HD2" "Public")
+    foreach(rate 48 12)
+        hdradio_sample_test(am_ma3_wshe_iq${rate} ${S}/wshe_na5b_820000Hz_iq${rate}.wav AM 0
+            "WSHE" "US facility 47104" "Adult Hits" "Practice Smiling" "V.V. Lightbody" "Period Piece [Clear]")
     endforeach()
 endif ()

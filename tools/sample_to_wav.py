@@ -3,11 +3,10 @@
 
   sample_to_wav.py <in.cu8 | in.xz> <out dir> [--freq HZ] [--rate HZ]
 
-nrsc5 ships one such recording, support/sample.xz: unsigned 8-bit I/Q at
-1488375 Hz, centred on KUT (90.5 MHz, Austin TX), carrying HD1 and HD2. The
-File Source wants 16-bit stereo WAV and reads the centre frequency from a
-"<n>Hz" in the file name, so the output is named accordingly. With no HD Radio
-in range, this is the way to try the module in SDR++ itself.
+samples/kut_90500000Hz_1488375sps.cu8.xz (nrsc5's own sample) is one: unsigned
+8-bit I/Q at 1488375 Hz, centred on KUT (90.5 MHz, Austin TX), carrying HD1 and
+HD2. The File Source wants 16-bit stereo WAV and reads the centre frequency
+from a "<n>Hz" in the file name, so the output is named accordingly.
 """
 import argparse
 import lzma

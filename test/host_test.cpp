@@ -6,30 +6,118 @@
 // core's layout, that the VFO's output decodes, that the menu draws, and that
 // the module shuts down cleanly.
 //
-//   host_test <module.so> <root dir> <iq file> <rate> [program] [wav out]
+//   host_test <module.so> <root dir> <recording> <FM|AM> [program] [expected text ...]
 //
-// The IQ file is unsigned 8-bit I/Q pairs (rtl_sdr's format, and that of
-// nrsc5's support/sample) at <rate>, centred on the station.
+// The recording is centred on the station, and is either a 16-bit stereo WAV
+// (what SDR++'s recorder and File Source use; the rate comes from its header)
+// or unsigned 8-bit I/Q pairs at 1488375 Hz (rtl_sdr's format, and nrsc5's),
+// raw or xz-compressed. Each expected text (station name, program type, a
+// title...) must appear in the module's menu once the recording has played.
+// HOST_TEST_WAV=<path> keeps the decoded audio. The root dir is created if
+// it does not exist.
 #include "harness.h"
 
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <thread>
+
+// Reads IQ from a WAV or an 8-bit recording, as complex float at `rate`.
+class Recording {
+public:
+    bool open(const std::string& path) {
+        auto ends = [&](const char* e) { return path.size() >= strlen(e) && path.compare(path.size() - strlen(e), strlen(e), e) == 0; };
+        if (ends(".wav")) {
+            f = fopen(path.c_str(), "rb");
+            if (!f) { return false; }
+            char id[4];
+            uint32_t size;
+            if (fread(id, 1, 4, f) != 4 || memcmp(id, "RIFF", 4) || fread(&size, 4, 1, f) != 1 || fread(id, 1, 4, f) != 4 || memcmp(id, "WAVE", 4)) { return false; }
+            while (fread(id, 1, 4, f) == 4 && fread(&size, 4, 1, f) == 1) {
+                if (!memcmp(id, "fmt ", 4)) {
+                    uint16_t fmt, ch, align, bits;
+                    uint32_t sr, bps;
+                    if (fread(&fmt, 2, 1, f) != 1 || fread(&ch, 2, 1, f) != 1 || fread(&sr, 4, 1, f) != 1 || fread(&bps, 4, 1, f) != 1 ||
+                        fread(&align, 2, 1, f) != 1 || fread(&bits, 2, 1, f) != 1) { return false; }
+                    if (fmt != 1 || ch != 2 || bits != 16) { return false; }
+                    rate = sr;
+                    fseek(f, size - 16, SEEK_CUR);
+                }
+                else if (!memcmp(id, "data", 4)) {
+                    wav = true;
+                    return rate > 0;
+                }
+                else {
+                    fseek(f, size, SEEK_CUR);
+                }
+            }
+            return false;
+        }
+        rate = 1488375;
+        if (ends(".xz")) {
+            f = popen(("xz -dc '" + path + "'").c_str(), "r");
+            piped = true;
+        }
+        else {
+            f = fopen(path.c_str(), "rb");
+        }
+        return f != nullptr;
+    }
+
+    // Up to `max` samples into `out`; 0 at the end.
+    int read(dsp::complex_t* out, int max) {
+        if (wav) {
+            buf16.resize(2 * max);
+            size_t got = fread(buf16.data(), 4, max, f);
+            for (size_t i = 0; i < got; i++) { out[i] = { buf16[2 * i] / 32768.0f, buf16[2 * i + 1] / 32768.0f }; }
+            return (int)got;
+        }
+        buf8.resize(2 * max);
+        size_t got = fread(buf8.data(), 2, max, f);
+        for (size_t i = 0; i < got; i++) { out[i] = { (buf8[2 * i] - 127.5f) / 128.0f, (buf8[2 * i + 1] - 127.5f) / 128.0f }; }
+        return (int)got;
+    }
+
+    void close() {
+        if (f) { piped ? pclose(f) : fclose(f); }
+        f = nullptr;
+    }
+
+    double rate = 0;
+
+private:
+    FILE* f = nullptr;
+    bool wav = false, piped = false;
+    std::vector<int16_t> buf16;
+    std::vector<uint8_t> buf8;
+};
 
 int main(int argc, char** argv) {
     if (argc < 5) {
-        fprintf(stderr, "usage: %s <module> <root> <iq file> <rate> [program] [wav out]\n", argv[0]);
+        fprintf(stderr, "usage: %s <module> <root> <recording> <FM|AM> [program] [expected text ...]\n", argv[0]);
         return 2;
     }
     std::string modPath = argv[1], root = argv[2], iqPath = argv[3];
-    double rate = atof(argv[4]);
+    int mode = std::string(argv[4]) == "AM" ? 1 : 0;
     int program = argc > 5 ? atoi(argv[5]) : 0;
-    std::string wavPath = argc > 6 ? argv[6] : "";
+    std::vector<std::string> expected(argv + std::min(argc, 6), argv + argc);
+    std::string wavPath = getenv("HOST_TEST_WAV") ? getenv("HOST_TEST_WAV") : "";
+    std::filesystem::create_directories(root);
     const std::string inst = "HD Radio";
+
+    Recording rec;
+    if (!rec.open(iqPath)) {
+        printf("FAIL: cannot read %s\n", iqPath.c_str());
+        return 1;
+    }
+    double rate = rec.rate;
+    printf("%s: %.0f Hz, %s mode\n", iqPath.c_str(), rate, mode ? "AM" : "FM");
 
     {
         std::ofstream cfg(root + "/hdradio_decoder_config.json");
-        cfg << "{\"" << inst << "\":{\"mode\":0,\"program\":" << program << "}}";
+        cfg << "{\"" << inst << "\":{\"mode\":" << mode << ",\"program\":" << program << "}}";
     }
 
     if (!initHeadlessCore(root)) { return 2; }
@@ -66,30 +154,20 @@ int main(int argc, char** argv) {
     sigpath::iqFrontEnd.start();
 
     // Feed the recording, drawing the menu now and then as SDR++ would.
-    FILE* f = fopen(iqPath.c_str(), "rb");
-    if (!f) {
-        printf("FAIL: cannot open %s\n", iqPath.c_str());
-        return 1;
-    }
     auto t0 = std::chrono::steady_clock::now();
-    std::vector<uint8_t> raw(2 * 65536);
     long fed = 0;
     int draws = 0;
     for (;;) {
-        size_t got = fread(raw.data(), 2, 65536, f);
+        int got = rec.read(input.writeBuf, 65536);
         if (got == 0) { break; }
-        for (size_t i = 0; i < got; i++) {
-            input.writeBuf[i].re = (raw[2 * i] - 127.5f) / 128.0f;
-            input.writeBuf[i].im = (raw[2 * i + 1] - 127.5f) / 128.0f;
-        }
-        if (!input.swap((int)got)) { break; }
+        if (!input.swap(got)) { break; }
         fed += got;
         if (fed / (long)(rate / 2) > draws) {
             draws++;
             menuText();
         }
     }
-    fclose(f);
+    rec.close();
     // Let the chain drain.
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
@@ -105,7 +183,13 @@ int main(int argc, char** argv) {
            frames ? 100.0 * loud / frames : 0.0);
 
     bool synced = shown.find("Synced") != std::string::npos;
-    bool ok = synced && frames > 48000 * 3 && loud > frames / 4;
+    bool allShown = true;
+    for (const auto& e : expected) {
+        bool found = shown.find(e) != std::string::npos;
+        printf("expected \"%s\": %s\n", e.c_str(), found ? "shown" : "MISSING");
+        allShown = allShown && found;
+    }
+    bool ok = synced && allShown && frames > 48000 * 3 && loud > frames / 4;
     printf("sync %s\n", synced ? "yes" : "NO");
 
     // Tear down as SDR++ does on exit.
