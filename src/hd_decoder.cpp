@@ -66,6 +66,13 @@ bool HdDecoder::isOpen() {
     return _radio != nullptr;
 }
 
+void HdDecoder::setInputRate(double inputRate) {
+    std::lock_guard<std::mutex> lck(_dspMtx);
+    if (inputRate == _inputRate) { return; }
+    _inputRate = inputRate;
+    _iqResamp.init(inputRate, nativeRate(_mode), IQ_TAPS);
+}
+
 void HdDecoder::setAudioHandler(AudioHandler handler, void* ctx) {
     std::lock_guard<std::mutex> lck(_dspMtx);
     _audioHandler = handler;

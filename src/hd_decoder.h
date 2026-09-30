@@ -61,6 +61,9 @@ public:
     void close();
     bool isOpen();
 
+    // A new VFO rate: only the resampler in front of nrsc5 changes.
+    void setInputRate(double inputRate);
+
     void setAudioHandler(AudioHandler handler, void* ctx);
     void setAudioRate(double rate);
     void setProgram(int program);

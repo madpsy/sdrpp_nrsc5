@@ -130,7 +130,9 @@ int main(int argc, char** argv) {
     // Unbuffered, so the feeder below is paced by how fast the chain drains.
     dsp::stream<dsp::complex_t> input;
     sigpath::iqFrontEnd.init(&input, rate, false, 1, false, 1024, 20.0, IQFrontEnd::FFTWindow::NUTTALL, acquireFFT, releaseFFT, NULL);
-    sigpath::sinkManager.registerSinkProvider("Capture", { CaptureSink::create, NULL });
+    // Named as the audio sink module names its provider: a stream with no
+    // config must find its way here on its own, as it does to the speakers.
+    sigpath::sinkManager.registerSinkProvider("Audio", { CaptureSink::create, NULL });
 
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -149,8 +151,20 @@ int main(int argc, char** argv) {
         return 1;
     }
     core::moduleManager.doPostInitAll();
-    sigpath::sinkManager.setStreamSink(inst, "Capture");
     menuText();
+
+    // A source changing rate under the module, as picking another source
+    // does: the core reconfigures the VFO first, then the module (on its next
+    // frame) moves the VFO back onto a power-of-two ratio.
+    for (double r : { 2400000.0, rate }) {
+        auto c0 = std::chrono::steady_clock::now();
+        sigpath::iqFrontEnd.setSampleRate(r);
+        auto c1 = std::chrono::steady_clock::now();
+        gui::waterfall.onFFTRedraw.emit(ImGui::WaterFall::FFTRedrawArgs{});
+        auto c2 = std::chrono::steady_clock::now();
+        printf("source rate -> %.0f Hz: core reconfigure %.0f ms, module follow-up %.0f ms\n", r,
+               std::chrono::duration<double, std::milli>(c1 - c0).count(), std::chrono::duration<double, std::milli>(c2 - c1).count());
+    }
 
     sigpath::iqFrontEnd.start();
 

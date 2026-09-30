@@ -30,20 +30,30 @@ SDRPP_MOD_INFO{
 
 ConfigManager config;
 
-// What the VFO delivers for each mode. The rates are round numbers on purpose
-// (see resampler.h); the bandwidths cover the digital sidebands, which reach
-// +/-198.4 kHz for FM and +/-15 kHz for AM, with room for the VFO filter's
-// transition band.
+// The bandwidths cover the digital sidebands, which reach +/-198.4 kHz for FM
+// and +/-15 kHz for AM, with room for the VFO filter's transition band. The
+// minimum rate keeps the sidebands inside src/resampler.h's passband.
 struct ModeParams {
     const char* label;
-    double vfoRate;
+    double minRate;
     double bandwidth;
     double snap;
 };
 static const ModeParams MODES[] = {
-    { "FM", 750000.0, 440000.0, 100000.0 },
-    { "AM", 50000.0, 34000.0, 1000.0 },
+    { "FM", 480000.0, 440000.0, 100000.0 },
+    { "AM", 40000.0, 34000.0, 1000.0 },
 };
+
+// The VFO's output rate: the source's rate halved as often as the mode allows.
+// The core's VFO then only runs its power-of-two decimator. Any other ratio
+// makes it build a polyphase filter of (out / gcd(in, out)) phases, and for an
+// odd source rate such as 1488375 Hz that is millions of taps, built on the
+// GUI thread. src/resampler.h takes it the rest of the way to nrsc5's rate.
+static double vfoRateFor(double sourceRate, const ModeParams& m) {
+    double r = sourceRate;
+    while (r / 2.0 >= m.minRate) { r /= 2.0; }
+    return r;
+}
 static const char* MODE_NAMES = "FM\0AM\0";
 
 class HdRadioModule : public ModuleManager::Instance {
@@ -63,12 +73,21 @@ public:
         srChangeHandler.ctx = this;
         srChangeHandler.handler = sampleRateChangeHandler;
         stream.init(&audioOut, &srChangeHandler, 48000);
+        // The core starts every new stream on the "None" sink unless its
+        // config names one; the Radio module only plays because SDR++'s
+        // default config has an entry for it. See postInit().
+        core::configManager.acquire();
+        streamConfigured = core::configManager.conf.contains("streams") && core::configManager.conf["streams"].contains(name);
+        core::configManager.release();
         sigpath::sinkManager.registerStream(name, &stream);
         stream.start();
 
         retuneHandler.ctx = this;
         retuneHandler.handler = retuneEventHandler;
         sigpath::sourceManager.onRetune.bindHandler(&retuneHandler);
+        fftRedrawHandler.ctx = this;
+        fftRedrawHandler.handler = fftRedraw;
+        gui::waterfall.onFFTRedraw.bindHandler(&fftRedrawHandler);
 
         enable();
         gui::menu.registerEntry(name, menuHandler, this, this);
@@ -76,23 +95,31 @@ public:
 
     ~HdRadioModule() {
         gui::menu.removeEntry(name);
+        gui::waterfall.onFFTRedraw.unbindHandler(&fftRedrawHandler);
         disable();
         stream.stop();
         sigpath::sourceManager.onRetune.unbindHandler(&retuneHandler);
         sigpath::sinkManager.unregisterStream(name);
     }
 
-    void postInit() {}
+    // Every module's sinks are registered by now. A stream never configured
+    // before goes to the audio device, as the Radio module's does.
+    void postInit() {
+        if (!streamConfigured) { sigpath::sinkManager.setStreamSink(name, "Audio"); }
+    }
 
     void enable() {
         if (enabled) { return; }
         const ModeParams& m = MODES[mode];
         double bw = gui::waterfall.getBandwidth();
+        sourceRate = sigpath::iqFrontEnd.getEffectiveSamplerate();
+        vfoRate = vfoRateFor(sourceRate, m);
+        double vfoBw = std::min(m.bandwidth, vfoRate);
         vfo = sigpath::vfoManager.createVFO(name, ImGui::WaterfallVFO::REF_CENTER, std::clamp<double>(0, -bw / 2.0, bw / 2.0),
-                                            m.bandwidth, m.vfoRate, m.bandwidth, m.bandwidth, true);
+                                            vfoBw, vfoRate, vfoBw, vfoBw, true);
         vfo->setSnapInterval(m.snap);
 
-        decoder.open((HdDecoder::Mode)mode, m.vfoRate);
+        decoder.open((HdDecoder::Mode)mode, vfoRate);
         centerFreq = gui::waterfall.getCenterFrequency();
         lastTuned = NAN;
 
@@ -158,6 +185,26 @@ private:
             stereo += 2 * n;
             frames -= n;
         }
+    }
+
+    // GUI thread, every frame. The core has no event for a new source rate, and
+    // it has already reconfigured the VFO for it (from the new rate to the
+    // old output rate) by the time this runs; this puts the VFO back on a
+    // power-of-two ratio and tells the decoder.
+    static void fftRedraw(ImGui::WaterFall::FFTRedrawArgs args, void* ctx) {
+        HdRadioModule* _this = (HdRadioModule*)ctx;
+        if (!_this->enabled) { return; }
+        double sr = sigpath::iqFrontEnd.getEffectiveSamplerate();
+        if (sr == _this->sourceRate) { return; }
+        _this->sourceRate = sr;
+        const ModeParams& m = MODES[_this->mode];
+        double rate = vfoRateFor(sr, m);
+        if (rate == _this->vfoRate) { return; }
+        _this->vfoRate = rate;
+        double vfoBw = std::min(m.bandwidth, rate);
+        _this->vfo->setBandwidthLimits(vfoBw, vfoBw, true);
+        _this->vfo->setSampleRate(rate, vfoBw);
+        _this->decoder.setInputRate(rate);
     }
 
     static void sampleRateChangeHandler(float sampleRate, void* ctx) {
@@ -253,6 +300,10 @@ private:
     std::atomic<double> centerFreq{ 0 };
     double lastTuned = NAN; // IQ thread only
     EventHandler<double> retuneHandler;
+    EventHandler<ImGui::WaterFall::FFTRedrawArgs> fftRedrawHandler;
+    double sourceRate = 0; // GUI thread
+    double vfoRate = 0;
+    bool streamConfigured = false;
 
     dsp::stream<dsp::stereo_t> audioOut;
     EventHandler<float> srChangeHandler;
