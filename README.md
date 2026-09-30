@@ -60,6 +60,13 @@ also saves the source's IQ, to check the spectrum when nothing syncs:
     build/live_test $PWD/build/hdradio_decoder.so /usr/lib/sdrpp/plugins/ubersdr_source.so \
         UberSDR <root> 1450000 AM 90 [program] [out.wav]
 
+`band_scan` steps a source across MW (540-1700 kHz by default) and flags
+channels whose spectrum has hybrid AM HD's sidebands: flat blocks from about
+10.4 to 14.7 kHz on both sides of the carrier. It only screens; `live_test`
+on a flagged channel is the proof.
+
+    build/band_scan /usr/lib/sdrpp/plugins/ubersdr_source.so UberSDR <root> [start kHz] [stop kHz] [step kHz]
+
 ## How it fits together
 
 - `src/main.cpp`: the SDR++ module: VFO, menu, audio stream, config.
