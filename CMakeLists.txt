@@ -151,7 +151,8 @@ install(TARGETS hdradio_decoder LIBRARY DESTINATION lib/sdrpp/plugins)
 #
 # resampler_test checks the fractional resampler on its own. host_test loads the
 # built module into a real SDR++ core and plays nrsc5's sample capture through
-# the core's signal path:
+# the core's signal path; live_test does the same with a real source module
+# tuned to a station on the air:
 #   -DHDRADIO_TEST_CORE_LIB=/usr/lib/libsdrpp_core.so
 add_executable(resampler_test test/resampler_test.cpp)
 target_include_directories(resampler_test PRIVATE src)
@@ -159,7 +160,9 @@ target_include_directories(resampler_test PRIVATE src)
 set(HDRADIO_TEST_CORE_LIB "" CACHE FILEPATH "SDR++ core library to link host_test against")
 if (HDRADIO_TEST_CORE_LIB)
     find_library(HDRADIO_FOUND_VOLK volk REQUIRED)
-    add_executable(host_test test/host_test.cpp)
-    target_include_directories(host_test PRIVATE ${VOLK_INCLUDE_DIR} ${SDRPP_SOURCE_DIR}/core/src ${SDRPP_SOURCE_DIR}/core/src/imgui)
-    target_link_libraries(host_test PRIVATE ${HDRADIO_TEST_CORE_LIB} ${HDRADIO_FOUND_VOLK} ${FFTW3F_LIBRARY} pthread dl)
+    foreach(t host_test live_test)
+        add_executable(${t} test/${t}.cpp)
+        target_include_directories(${t} PRIVATE ${VOLK_INCLUDE_DIR} ${SDRPP_SOURCE_DIR}/core/src ${SDRPP_SOURCE_DIR}/core/src/imgui)
+        target_link_libraries(${t} PRIVATE ${HDRADIO_TEST_CORE_LIB} ${HDRADIO_FOUND_VOLK} ${FFTW3F_LIBRARY} pthread dl)
+    endforeach()
 endif ()

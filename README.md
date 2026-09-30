@@ -52,6 +52,14 @@ SDR++'s **File Source** and play it:
 recording through the core's IQ front end and the module's VFO, and captures
 the module's audio; it passes when the decoder syncs and plays.
 
+`live_test` does the same with a real source module tuned to a station, and
+prints what the menu shows as it changes. For an UberSDR receiver, put an
+`ubersdr_source_config.json` naming it in the root dir first; `IQ_DUMP=file`
+also saves the source's IQ, to check the spectrum when nothing syncs:
+
+    build/live_test $PWD/build/hdradio_decoder.so /usr/lib/sdrpp/plugins/ubersdr_source.so \
+        UberSDR <root> 1450000 AM 90 [program] [out.wav]
+
 ## How it fits together
 
 - `src/main.cpp`: the SDR++ module: VFO, menu, audio stream, config.
