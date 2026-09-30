@@ -8,7 +8,19 @@ BER, the programs on air, the station's name, slogan and message, alerts, and
 the title and artist now playing.
 
 It works with any SDR++ source. FM needs about 400 kHz of the source's bandwidth
-around the station (the digital sidebands reach ±198 kHz); AM needs about 30 kHz.
+around the station (the digital sidebands reach ±198 kHz); AM needs about 30 kHz. Both hybrid and all-digital (MA3) AM are
+supported.
+
+## nrsc5 changes
+
+`patches/nrsc5-ma3-timing-filter.patch` is applied to nrsc5 at build time.
+nrsc5 finds AM symbol timing through a filter that passes only 10–15 kHz from
+the carrier, where a hybrid station's primary sidebands are. An all-digital
+(MA3) station keeps its subcarriers within ±9.5 kHz, so that filter sees
+mostly noise and neighbouring channels, and a strong MA3 signal can fail to
+sync (WSHE, 820 kHz, heard strongly at NA5B, never did). Once the station has
+identified itself as MA3, the patch switches to a filter covering
+1.5–14.7 kHz with a null at the carrier. Hybrid stations are unaffected.
 
 ## Build
 

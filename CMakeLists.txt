@@ -114,13 +114,40 @@ set(USE_FAAD2 ON)
 set(LIBRARY_DEBUG_LEVEL 5)  # nrsc5's own logging off: SDR++ has its own
 configure_file(${NRSC5_SOURCE_DIR}/src/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/nrsc5/config.h)
 
+# patches/nrsc5-*.patch change nrsc5 (see each patch); they are applied to a
+# copy in the build tree, so a checkout given as NRSC5_SOURCE_DIR is never
+# touched.
+set(NRSC5_PATCHED_DIR ${CMAKE_CURRENT_BINARY_DIR}/nrsc5-patched)
+file(GLOB NRSC5_PATCHES ${CMAKE_CURRENT_SOURCE_DIR}/patches/nrsc5-*.patch)
+set(_nrsc5_patch_stamp "${NRSC5_SOURCE_DIR};${NRSC5_PATCHES}")
+foreach(_p ${NRSC5_PATCHES})
+    file(SHA256 ${_p} _h)
+    string(APPEND _nrsc5_patch_stamp ";${_h}")
+endforeach()
+if (NOT EXISTS ${NRSC5_PATCHED_DIR}/.stamp OR NOT "${_nrsc5_patch_stamp}" STREQUAL "${NRSC5_PATCH_STAMP_DONE}")
+    file(REMOVE_RECURSE ${NRSC5_PATCHED_DIR})
+    # The whole of src/, not just the patched files: nrsc5 includes its headers
+    # with quotes, which look beside the including file first.
+    file(GLOB _nrsc5_src ${NRSC5_SOURCE_DIR}/src/*.c ${NRSC5_SOURCE_DIR}/src/*.h)
+    file(COPY ${_nrsc5_src} DESTINATION ${NRSC5_PATCHED_DIR})
+    find_program(PATCH_PROGRAM patch REQUIRED)
+    foreach(_p ${NRSC5_PATCHES})
+        execute_process(COMMAND ${PATCH_PROGRAM} -p2 -N -i ${_p} WORKING_DIRECTORY ${NRSC5_PATCHED_DIR} RESULT_VARIABLE _r)
+        if (NOT _r EQUAL 0)
+            message(FATAL_ERROR "${_p} did not apply to nrsc5")
+        endif ()
+    endforeach()
+    file(TOUCH ${NRSC5_PATCHED_DIR}/.stamp)
+    set(NRSC5_PATCH_STAMP_DONE "${_nrsc5_patch_stamp}" CACHE INTERNAL "")
+endif ()
+
 set(NRSC5_SOURCES acquire.c decode.c frame.c here_images.c input.c nrsc5.c output.c pids.c
     rtltcp.c sync.c firdecim_cf32.c conv_dec.c rs_init.c rs_decode.c unicode.c strndup.c)
-list(TRANSFORM NRSC5_SOURCES PREPEND ${NRSC5_SOURCE_DIR}/src/)
+list(TRANSFORM NRSC5_SOURCES PREPEND ${NRSC5_PATCHED_DIR}/)
 add_library(nrsc5_static STATIC ${NRSC5_SOURCES} src/rtlsdr_stub.c)
 target_include_directories(nrsc5_static
     PUBLIC ${NRSC5_SOURCE_DIR}/include
-    PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/nrsc5 ${NRSC5_SOURCE_DIR}/src compat/rtlsdr ${FFTW3F_INCLUDE_DIR})
+    PRIVATE ${NRSC5_PATCHED_DIR} ${CMAKE_CURRENT_BINARY_DIR}/nrsc5 compat/rtlsdr ${FFTW3F_INCLUDE_DIR})
 string(SUBSTRING ${NRSC5_COMMIT} 0 7 _nrsc5_short)
 target_compile_definitions(nrsc5_static PRIVATE _GNU_SOURCE HAVE_FAAD2 GIT_COMMIT_HASH="${_nrsc5_short}")
 target_compile_options(nrsc5_static PRIVATE --std=gnu11 -O3 -fvisibility=hidden)

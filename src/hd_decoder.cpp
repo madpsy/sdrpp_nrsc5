@@ -212,8 +212,9 @@ void HdDecoder::handleEvent(const nrsc5_event_t* evt) {
         if (evt->sis.slogan) { s.slogan = evt->sis.slogan; }
         if (evt->sis.message) { s.message = evt->sis.message; }
         if (evt->sis.alert) { s.alert = evt->sis.alert; }
-        // NaN until the station's location has been received.
-        if (!std::isnan(evt->sis.latitude) && !std::isnan(evt->sis.longitude)) {
+        // NaN until the station's location has been received; some stations
+        // send 0, 0 rather than a real one.
+        if (!std::isnan(evt->sis.latitude) && !std::isnan(evt->sis.longitude) && (evt->sis.latitude != 0 || evt->sis.longitude != 0)) {
             s.haveLocation = true;
             s.latitude = evt->sis.latitude;
             s.longitude = evt->sis.longitude;
@@ -240,6 +241,7 @@ void HdDecoder::handleEvent(const nrsc5_event_t* evt) {
         s.message = str(evt->station_message.message);
         break;
     case NRSC5_EVENT_STATION_LOCATION:
+        if (evt->station_location.latitude == 0 && evt->station_location.longitude == 0) { break; }
         s.haveLocation = true;
         s.latitude = evt->station_location.latitude;
         s.longitude = evt->station_location.longitude;
