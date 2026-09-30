@@ -1,0 +1,57 @@
+HD Radio (NRSC-5) decoder for SDR++
+===================================
+
+Decodes HD Radio stations, FM and AM (hybrid and all-digital), from whatever
+source SDR++ is using, and plays the chosen program (HD1, HD2 ...) through
+SDR++'s audio. Shows the station's name, slogan and message, and the title and
+artist now playing. Works in SDR++ and in SDR++ Community Edition.
+
+Source: https://github.com/madpsy/sdrpp_nrsc5 (GPL-3.0; based on nrsc5)
+
+
+1. Put the module where SDR++ looks for modules
+-----------------------------------------------
+
+Windows
+    Copy hdradio_decoder.dll into the "modules" folder inside the SDR++ folder
+    (next to sdrpp.exe).
+
+Linux
+    sudo cp hdradio_decoder.so /usr/lib/sdrpp/plugins/
+    (If SDR++ was built from source into /usr/local, use /usr/local/lib/sdrpp/plugins/.)
+
+macOS
+    Keep hdradio_decoder.dylib somewhere permanent, e.g. ~/Library/Application Support/sdrpp/,
+    then quit SDR++ and add its full path to the "modules" list in
+        ~/Library/Application Support/sdrpp/config.json
+    for example:
+        "modules": ["/Users/you/Library/Application Support/sdrpp/hdradio_decoder.dylib"],
+    (Copying it into SDR++.app would break the app's signature.)
+
+    The same "modules" list works on every platform, if you would rather not
+    copy files into the SDR++ install.
+
+
+2. Create the decoder
+---------------------
+
+Start SDR++, open "Module Manager" in the side menu, type a name (e.g. HD Radio),
+pick "hdradio_decoder" from the list and press "+". It stays there from then on.
+
+
+3. Use it
+---------
+
+In the HD Radio section, set Mode to FM or AM, then put its VFO (the shaded
+box it adds to the waterfall) on the station's centre frequency. Within a few
+seconds it shows "Synced" and the station's details, and the program plays.
+Pick another program (HD2 ...) in the same section. The audio has its own
+entry under "Sinks", for volume and output device.
+
+The source has to cover the station: about 400 kHz around an FM station, about
+30 kHz around an AM one (12 kHz is enough for an all-digital AM station).
+
+HD Radio is broadcast in the USA (and a few nearby countries). A hybrid station
+shows flat, noise-like blocks either side of its analogue signal on the
+waterfall: 130-200 kHz out on FM, 10-15 kHz out on AM. An all-digital AM
+station is only blocks, within 10 kHz of its carrier.

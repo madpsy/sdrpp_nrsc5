@@ -1,0 +1,8 @@
+# The sample recordings and what the module must show after playing each one.
+# Read by CMakeLists.txt (ctest) and by build.sh (tests on every platform).
+#
+#   name|recording in samples/|FM or AM|program (0 = HD1)|expected text|...
+fm_kut_hd1|kut_90500000Hz_1488375sps.cu8.xz|FM|0|KUT|The University of Texas at Austin|HD2|You're Listening to Q with Jian Ghomeshi
+fm_kut_hd2|kut_90500000Hz_1488375sps.cu8.xz|FM|1|KUT|(x) HD2|Public
+am_ma3_wshe_iq48|wshe_na5b_820000Hz_iq48.wav|AM|0|WSHE|US facility 47104|Adult Hits|Practice Smiling|V.V. Lightbody|Period Piece [Clear]
+am_ma3_wshe_iq12|wshe_na5b_820000Hz_iq12.wav|AM|0|WSHE|US facility 47104|Adult Hits|Practice Smiling|V.V. Lightbody|Period Piece [Clear]

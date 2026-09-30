@@ -22,6 +22,14 @@ sync (WSHE, 820 kHz, heard strongly at NA5B, never did). Once the station has
 identified itself as MA3, the patch switches to a filter covering
 1.5–14.7 kHz with a null at the carrier. Hybrid stations are unaffected.
 
+## Download
+
+Prebuilt modules for Linux (x86_64, arm64), Windows (x64) and macOS
+(universal, signed and notarised) are on the
+[releases page](https://github.com/madpsy/sdrpp_nrsc5/releases). Each zip holds
+the module and an INSTALL.txt. One build per platform works in both SDR++ and
+SDR++ Community Edition.
+
 ## Build
 
 Needs CMake ≥ 3.24, a C/C++ compiler, `patch`, and FFTW and VOLK development
@@ -36,6 +44,26 @@ so the module needs nothing installed beyond what SDR++ already uses.
 
 Then, in SDR++, open **Module Manager**, pick `hdradio_decoder`, name the
 instance (e.g. "HD Radio") and add it.
+
+### Release builds
+
+`./build.sh` builds the release modules for every platform and packages them
+into `dist/`:
+
+| Platform | Built with | Checked against |
+|---|---|---|
+| Linux x86_64, arm64 | Docker, Ubuntu Focal (glibc 2.31; arm64 under emulation) | upstream nightly and CE cores: every imported symbol |
+| Windows x64 | Docker, clang-cl against Microsoft's CRT and SDK (xwin) | upstream and CE `sdrpp_core.dll`, `volk.dll`, `fftw3f.dll` |
+| macOS universal | over ssh on a Mac (`MAC_HOST`), signed and notarised | |
+
+    ./build.sh [--only=linux,linux-arm,windows,mac] [--test] [--publish] [--yes]
+
+`--test` plays every recording in `samples/` through the release build of the
+module inside the real upstream and CE cores, and checks what
+`test/samples.txt` says each should show: natively on Linux, under wine for
+Windows, and on the Mac (with the signed dylib quarantined, as a download
+would be). `--publish` uploads the zips to the `latest` release on GitHub
+(creating it if needed), after asking.
 
 ## Use
 
@@ -105,8 +133,13 @@ on a flagged channel is the proof.
   or 46511.71875 Hz (AM), which SDR++'s rational resampler cannot reach from
   common SDR rates without an enormous filter, so the VFO delivers a round
   rate and this does the rest.
-- `src/rtlsdr_stub.c`, `compat/rtlsdr/`: nrsc5's library calls librtlsdr
-  directly; samples here always come from SDR++, so those calls are stubbed.
+- `src/rtlsdr_stub.c`, `src/rtltcp_stub.c`, `compat/rtlsdr/`: nrsc5's library
+  drives RTL-SDRs and rtl_tcp itself; samples here always come from SDR++, so
+  those calls are stubbed.
+- `compat/win/`, `src/win_complex_rt.c`: what nrsc5 (C99 and POSIX) needs
+  under clang-cl and the MSVC runtime: `complex.h`, `pthread.h`, `memalign`,
+  and the complex multiply and divide helpers.
+- `build.sh`, `docker/`, `tools/`: the release build and its symbol checks.
 
 ## Licence
 

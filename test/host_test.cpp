@@ -24,6 +24,11 @@
 #include <filesystem>
 #include <thread>
 
+#ifdef _WIN32
+#define popen _popen
+#define pclose _pclose
+#endif
+
 // Reads IQ from a WAV or an 8-bit recording, as complex float at `rate`.
 class Recording {
 public:
